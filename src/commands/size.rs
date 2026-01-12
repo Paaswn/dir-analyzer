@@ -5,6 +5,7 @@ use std::{
     path::PathBuf,
 };
 
+use indicatif::{ProgressBar, ProgressStyle};
 const MAX_SIZE_LEN: usize = 3;
 const MAX_NAME_LEN: usize = 30;
 
@@ -70,7 +71,11 @@ fn print_size(dir: &PathBuf, limit: Option<usize>) -> io::Result<()> {
 //
 
 fn list_top_level(path: &PathBuf) -> io::Result<Vec<BasicFile>> {
-    fn get_filelike_size(path: &PathBuf, items: &mut Vec<BasicFile>) -> io::Result<u128> {
+    fn get_filelike_size(
+        path: &PathBuf,
+        items: &mut Vec<BasicFile>,
+        pb: &ProgressBar,
+    ) -> io::Result<u128> {
         let mut total_size = 0u128;
         let dir = match fs::read_dir(path) {
             Ok(d) => d,
@@ -81,23 +86,30 @@ fn list_top_level(path: &PathBuf) -> io::Result<Vec<BasicFile>> {
             let file = file?;
             let metadata = file.metadata()?;
             if metadata.is_dir() {
-                get_filelike_size(&file.path(), items)?;
+                get_filelike_size(&file.path(), items, pb)?;
             } else {
                 total_size += file.metadata()?.len() as u128;
+                pb.set_message(format!("Reading {}...", file.file_name().to_str().unwrap()));
+                pb.tick();
             }
         }
         Ok(total_size)
     }
     let mut out = Vec::new();
 
+    let pb = ProgressBar::new_spinner();
+    pb.set_style(
+        ProgressStyle::default_spinner()
+            .template("{spinner:.green} {msg}") // {msg} is where the filename goes
+            .unwrap(),
+    );
     for entry in fs::read_dir(path)? {
         let entry = entry?;
         let meta = entry.metadata()?;
 
         let name = entry.file_name().to_string_lossy().into_owned();
-
         if meta.is_dir() {
-            let size = get_filelike_size(&entry.path(), &mut out)?;
+            let size = get_filelike_size(&entry.path(), &mut out, &pb)?;
             out.push(BasicFile { name, size });
         } else if meta.is_file() {
             out.push(BasicFile {
