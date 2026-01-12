@@ -1,6 +1,5 @@
 use std::{
     cmp::Reverse,
-    fmt::Write as FmtWrite,
     fs,
     io::{self, Write},
     path::PathBuf,
@@ -14,49 +13,53 @@ struct BasicFile {
     size: u128,
 }
 
-fn print_fmt_metadata(dir: &PathBuf) -> io::Result<()> {
-    fn get_fmt_name(buffer: &mut String, name: &str) {
-        let name_len = name.chars().count();
+impl BasicFile {
+    fn fmt_name(&mut self) {
+        let name_len = self.name.chars().count();
         if name_len > MAX_NAME_LEN {
-            let cropped_name: String = name.chars().take(MAX_NAME_LEN - 5).collect();
+            let cropped_name: String = self.name.chars().take(MAX_NAME_LEN - 5).collect();
             let cropped_name = format!("{}...", cropped_name);
-            write!(buffer, "{}", cropped_name).unwrap();
-        } else {
-            write!(buffer, "{}", name).unwrap();
+            self.name = cropped_name;
         }
     }
-
     #[inline]
-    fn get_fmt_size(file_size: u128) -> (u128, u8, &'static str) {
-        let (unit, suffix) = if file_size >= 1_000_000_000_000 {
+    fn fmt_size(&self) -> (u128, u8, &'static str) {
+        let (unit, suffix) = if self.size >= 1_000_000_000_000 {
             (1_000_000_000_000, "TB")
-        } else if file_size >= 1_000_000_000 {
+        } else if self.size >= 1_000_000_000 {
             (1_000_000_000, "GB")
-        } else if file_size >= 1_000_000 {
+        } else if self.size >= 1_000_000 {
             (1_000_000, "MB")
-        } else if file_size >= 1_000 {
+        } else if self.size >= 1_000 {
             (1_000, "kB")
         } else {
-            return (file_size, 0, "B");
+            return (self.size, 0, "B");
         };
-        let int_part = file_size / unit;
-        let rem = file_size % unit;
+        let int_part = self.size / unit;
+        let rem = self.size % unit;
         let frac = ((rem * 10) / unit) as u8;
 
         (int_part, frac, suffix)
     }
+}
+//
+fn print_size(dir: &PathBuf, limit: Option<usize>) -> io::Result<()> {
     let mut print_buf: Vec<u8> = Vec::with_capacity(4096);
-    let mut fmt_name: String = String::with_capacity(MAX_NAME_LEN);
     let mut files = list_top_level(dir)?;
     files.sort_by_key(|x| Reverse(x.size));
-    for f in files {
-        let (size, dec, suffix) = get_fmt_size(f.size);
-        fmt_name.clear();
-        get_fmt_name(&mut fmt_name, &f.name);
+    for (rank, mut f) in files.into_iter().enumerate() {
+        if f.size == 0 {
+            continue;
+        }
+        if rank + 1 > limit.unwrap_or(10) {
+            break;
+        }
+        let (size, dec, suffix) = f.fmt_size();
+        f.fmt_name();
         writeln!(
             &mut print_buf,
             "{:<MAX_NAME_LEN$} {:>MAX_SIZE_LEN$}.{} {}",
-            fmt_name, size, dec, suffix
+            f.name, size, dec, suffix
         )?;
     }
     let mut out = io::BufWriter::new(io::stdout());
@@ -64,8 +67,10 @@ fn print_fmt_metadata(dir: &PathBuf) -> io::Result<()> {
     out.flush().unwrap();
     Ok(())
 }
+//
+
 fn list_top_level(path: &PathBuf) -> io::Result<Vec<BasicFile>> {
-    fn analyze_dir(path: &PathBuf, items: &mut Vec<BasicFile>) -> io::Result<u128> {
+    fn get_filelike_size(path: &PathBuf, items: &mut Vec<BasicFile>) -> io::Result<u128> {
         let mut total_size = 0u128;
         let dir = match fs::read_dir(path) {
             Ok(d) => d,
@@ -76,7 +81,7 @@ fn list_top_level(path: &PathBuf) -> io::Result<Vec<BasicFile>> {
             let file = file?;
             let metadata = file.metadata()?;
             if metadata.is_dir() {
-                analyze_dir(&file.path(), items)?;
+                get_filelike_size(&file.path(), items)?;
             } else {
                 total_size += file.metadata()?.len() as u128;
             }
@@ -92,7 +97,7 @@ fn list_top_level(path: &PathBuf) -> io::Result<Vec<BasicFile>> {
         let name = entry.file_name().to_string_lossy().into_owned();
 
         if meta.is_dir() {
-            let size = analyze_dir(&entry.path(), &mut out)?;
+            let size = get_filelike_size(&entry.path(), &mut out)?;
             out.push(BasicFile { name, size });
         } else if meta.is_file() {
             out.push(BasicFile {
@@ -105,10 +110,10 @@ fn list_top_level(path: &PathBuf) -> io::Result<Vec<BasicFile>> {
     Ok(out)
 }
 
-pub fn get_top_sizes(path: &PathBuf) -> io::Result<()> {
+pub fn get_top_sizes(path: &PathBuf, limit: Option<usize>) -> io::Result<()> {
     let metadata = fs::metadata(path)?;
     if metadata.is_dir() {
-        print_fmt_metadata(path)?
+        print_size(path, limit)?
     } else {
         println!("{}", metadata.len());
     };

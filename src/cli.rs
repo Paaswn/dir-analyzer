@@ -1,3 +1,4 @@
+use crate::commands::loc;
 use crate::commands::size;
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
@@ -17,6 +18,12 @@ pub enum Commands {
     Size {
         #[arg(short, long)]
         path: Option<PathBuf>,
+        top: Option<usize>,
+    },
+    Loc {
+        #[arg(short, long)]
+        path: Option<PathBuf>,
+        top: Option<usize>,
     },
 }
 
@@ -29,13 +36,19 @@ pub fn parsing() -> std::io::Result<()> {
                     println!("{:?}", path);
                 }
             }
-            Commands::Size { path } => {
+            Commands::Size { path, top } => {
                 if let Some(path) = path {
-                    size::get_top_sizes(&path)?;
+                    size::get_top_sizes(&path, *top)?;
+                } else {
+                    size::get_top_sizes(&PathBuf::from("."), *top)?;
+                }
+            }
+            Commands::Loc { path, top } => {
+                if let Some(path) = path {
+                    loc::print_loc(&path, *top)?;
                 }
             }
         },
-        // TODO print top 10 file size
         None => {
             eprintln!("Error: No command provided")
         }
