@@ -20,9 +20,10 @@ struct CodeFile {
 fn walk_dir(path: &PathBuf, files: &mut Vec<CodeFile>) -> io::Result<()> {
     fn is_compatible(path: &PathBuf) -> (bool, &str) {
         if let Some(ext) = path.extension() {
-            let extension = ext.to_str().unwrap();
-            if CODE_EXTENSIONS.contains(&extension) {
-                return (true, extension);
+            if let Some(ext_str) = ext.to_str() {
+                if CODE_EXTENSIONS.contains(&ext_str) {
+                    return (true, ext_str);
+                }
             }
         }
         (false, "skip")
@@ -36,15 +37,17 @@ fn walk_dir(path: &PathBuf, files: &mut Vec<CodeFile>) -> io::Result<()> {
         let metadata = file.metadata()?;
         let path = file.path();
         let (is_suit, ext) = is_compatible(&path);
-        if metadata.is_dir() {
+        if file.file_name().to_string_lossy().starts_with('.') {
+            continue;
+        } else if metadata.is_dir() {
             walk_dir(&path, files)?;
         } else if is_suit {
-            get_loc(&path, files, ext)?;
+            get_loc(&path, files, ext).unwrap();
         }
     }
     Ok(())
 }
-pub fn print_loc(path: &PathBuf, top: Option<usize>) -> io::Result<()> {
+pub fn print_loc(path: &PathBuf, top: Option<usize>) -> Result<(), Box<dyn std::error::Error>> {
     let mut print_buf: Vec<u8> = Vec::with_capacity(4096);
     let mut files: Vec<CodeFile> = Vec::new();
     walk_dir(path, &mut files)?;
@@ -67,7 +70,11 @@ pub fn print_loc(path: &PathBuf, top: Option<usize>) -> io::Result<()> {
     outbuf.flush().unwrap();
     Ok(())
 }
-fn get_loc(file: &PathBuf, files: &mut Vec<CodeFile>, ext_name: &str) -> io::Result<()> {
+fn get_loc(
+    file: &PathBuf,
+    files: &mut Vec<CodeFile>,
+    ext_name: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
     fn fmt_name(buffer: &mut String, extension: &str, file_name: &str) -> std::fmt::Result {
         buffer.write_fmt(format_args!("{}...{}", &file_name[..5], extension))?;
         Ok(())
@@ -75,12 +82,14 @@ fn get_loc(file: &PathBuf, files: &mut Vec<CodeFile>, ext_name: &str) -> io::Res
     let content = fs::read_to_string(file)?;
     let loc = content.split("\n").filter(|x| !x.trim().is_empty()).count();
     let mut file_buf = String::new();
-    let file_name: &str = file.file_name().unwrap().to_str().unwrap();
-    if file_name.len() > MAX_NAME_LEN {
-        fmt_name(&mut file_buf, ext_name, file_name).unwrap();
-    } else {
-        file_buf.write_str(file_name).unwrap();
-    }
+    if let Some(file_name) = file.file_name() {
+        let file_name = file_name.to_string_lossy();
+        if file_name.len() > MAX_NAME_LEN {
+            fmt_name(&mut file_buf, ext_name, &file_name)?;
+        } else {
+            file_buf.write_str(&file_name)?;
+        }
+    };
     files.push(CodeFile {
         name: file_buf,
         lines: loc,

@@ -18,16 +18,18 @@ pub enum Commands {
     Size {
         #[arg(short, long)]
         path: Option<PathBuf>,
+        #[arg(short, long)]
         top: Option<usize>,
     },
     Loc {
         #[arg(short, long)]
         path: Option<PathBuf>,
+        #[arg(short, long)]
         top: Option<usize>,
     },
 }
 
-pub fn parsing() -> std::io::Result<()> {
+pub fn parsing() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
     match &cli.command {
         Some(command) => match command {
