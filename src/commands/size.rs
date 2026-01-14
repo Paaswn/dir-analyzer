@@ -42,7 +42,6 @@ impl BasicFile {
 fn parallel_size(path: &PathBuf, pb: &ProgressBar) -> u64 {
     if path.is_dir() {
         if let Ok(objects) = fs::read_dir(path) {
-            // Instead of for_each + Atomic, you can do:
             let total: u64 = objects
                 .flatten()
                 .map(|x| x.path())
@@ -51,8 +50,8 @@ fn parallel_size(path: &PathBuf, pb: &ProgressBar) -> u64 {
                 .map(|entry| {
                     pb.inc(1);
                     parallel_size(&entry, pb)
-                }) // Each thread returns a number
-                .sum::<u64>(); // Rayon adds them all up at the end
+                })
+                .sum::<u64>();
             return total;
         }
     } else if path.is_file() {
@@ -72,9 +71,6 @@ fn children_size(path: &PathBuf) -> std::io::Result<Vec<BasicFile>> {
     );
 
     let entries: Vec<_> = fs::read_dir(path).unwrap().flatten().collect();
-
-    // 1. calculate everything in parallel first!
-    // we store the (path, size) pairs in a new vec.
     let mut results: Vec<BasicFile> = entries
         .into_par_iter()
         .map(|entry| {
