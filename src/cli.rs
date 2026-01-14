@@ -40,9 +40,9 @@ pub fn parsing() -> Result<(), Box<dyn std::error::Error>> {
             }
             Commands::Size { path, top } => {
                 if let Some(path) = path {
-                    size::get_top_sizes(&path, *top)?;
+                    size::print_sizes(&path, *top)?;
                 } else {
-                    size::get_top_sizes(&PathBuf::from("."), *top)?;
+                    size::print_sizes(&PathBuf::from("."), *top)?;
                 }
             }
             Commands::Loc { path, top } => {
