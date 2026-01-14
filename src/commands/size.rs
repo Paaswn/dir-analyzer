@@ -5,6 +5,7 @@ use std::{
     path::PathBuf,
 };
 
+use crate::utils::{Processor, walk_dir};
 use indicatif::{ProgressBar, ProgressStyle};
 const MAX_SIZE_LEN: usize = 3;
 const MAX_NAME_LEN: usize = 30;
@@ -13,7 +14,22 @@ struct BasicFile {
     name: String,
     size: u128,
 }
-
+struct SizeScanner {
+    basic_files: Vec<BasicFile>,
+    total_size: u128,
+}
+impl Processor for SizeScanner {
+    type Custom = io::Result<()>;
+    fn process_file(&mut self, path: &PathBuf, pb: &indicatif::ProgressBar) -> Self::Custom {
+        self.total_size += path.metadata()?.len() as u128;
+        pb.set_message(format!(
+            "Reading {}...",
+            path.file_name().and_then(|x| x.to_str()).unwrap()
+        ));
+        pb.tick();
+        Ok(())
+    }
+}
 impl BasicFile {
     fn fmt_name(&mut self) {
         let name_len = self.name.chars().count();
@@ -71,32 +87,10 @@ fn print_size(dir: &PathBuf, limit: Option<usize>) -> io::Result<()> {
 //
 
 fn list_top_level(path: &PathBuf) -> io::Result<Vec<BasicFile>> {
-    fn get_filelike_size(
-        path: &PathBuf,
-        items: &mut Vec<BasicFile>,
-        pb: &ProgressBar,
-    ) -> io::Result<u128> {
-        let mut total_size = 0u128;
-        let dir = match fs::read_dir(path) {
-            Ok(d) => d,
-            Err(_) => return Ok(0),
-        };
-
-        for file in dir {
-            let file = file?;
-            let metadata = file.metadata()?;
-            if metadata.is_dir() {
-                get_filelike_size(&file.path(), items, pb)?;
-            } else {
-                total_size += file.metadata()?.len() as u128;
-                pb.set_message(format!("Reading {}...", file.file_name().to_str().unwrap()));
-                pb.tick();
-            }
-        }
-        Ok(total_size)
-    }
-    let mut out = Vec::new();
-
+    let mut processor = SizeScanner {
+        basic_files: Vec::new(),
+        total_size: 0,
+    };
     let pb = ProgressBar::new_spinner();
     pb.set_style(
         ProgressStyle::default_spinner()
@@ -109,17 +103,22 @@ fn list_top_level(path: &PathBuf) -> io::Result<Vec<BasicFile>> {
 
         let name = entry.file_name().to_string_lossy().into_owned();
         if meta.is_dir() {
-            let size = get_filelike_size(&entry.path(), &mut out, &pb)?;
-            out.push(BasicFile { name, size });
+            walk_dir(&entry.path(), &mut processor, &pb)?;
+            processor.basic_files.push(BasicFile {
+                name,
+                size: processor.total_size,
+            });
+            processor.total_size = 0
         } else if meta.is_file() {
-            out.push(BasicFile {
+            processor.basic_files.push(BasicFile {
                 name,
                 size: meta.len() as u128,
             });
         }
     }
+    pb.finish_with_message("Done!");
 
-    Ok(out)
+    Ok(processor.basic_files)
 }
 
 pub fn get_top_sizes(path: &PathBuf, limit: Option<usize>) -> io::Result<()> {
