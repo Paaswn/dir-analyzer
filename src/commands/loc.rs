@@ -133,7 +133,7 @@ pub fn print_loc(path: &PathBuf, top: Option<usize>) -> Result<(), Box<dyn std::
             f.name, f.lines
         )?;
     }
-    pb.finish_with_message("Done!");
+    pb.finish_and_clear();
     let mut outbuf = io::BufWriter::new(io::stdout());
     outbuf.write_all(&print_buf).unwrap();
     outbuf.flush().unwrap();

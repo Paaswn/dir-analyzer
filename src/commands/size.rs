@@ -1,37 +1,17 @@
-use std::{
-    cmp::Reverse,
-    fs,
-    io::{self, Write},
-    path::PathBuf,
-};
-
-use crate::utils::{Processor, walk_dir};
 use indicatif::{ProgressBar, ProgressStyle};
+use rayon::prelude::*;
+use std::{cmp::Reverse, fs, io::Write, path::PathBuf, sync::Arc};
+
 const MAX_SIZE_LEN: usize = 3;
 const MAX_NAME_LEN: usize = 30;
 
 struct BasicFile {
     name: String,
-    size: u128,
+    size: u64,
 }
-struct SizeScanner {
-    basic_files: Vec<BasicFile>,
-    total_size: u128,
-}
-impl Processor for SizeScanner {
-    type Custom = io::Result<()>;
-    fn process_file(&mut self, path: &PathBuf, pb: &indicatif::ProgressBar) -> Self::Custom {
-        self.total_size += path.metadata()?.len() as u128;
-        pb.set_message(format!(
-            "Reading {}...",
-            path.file_name().and_then(|x| x.to_str()).unwrap()
-        ));
-        pb.tick();
-        Ok(())
-    }
-}
+
 impl BasicFile {
-    fn fmt_name(&mut self) {
+    fn shorten_name(&mut self) {
         let name_len = self.name.chars().count();
         if name_len > MAX_NAME_LEN {
             let cropped_name: String = self.name.chars().take(MAX_NAME_LEN - 5).collect();
@@ -40,7 +20,7 @@ impl BasicFile {
         }
     }
     #[inline]
-    fn fmt_size(&self) -> (u128, u8, &'static str) {
+    fn fmt_size(&self) -> (u64, u8, &'static str) {
         let (unit, suffix) = if self.size >= 1_000_000_000_000 {
             (1_000_000_000_000, "TB")
         } else if self.size >= 1_000_000_000 {
@@ -59,74 +39,80 @@ impl BasicFile {
         (int_part, frac, suffix)
     }
 }
-//
-fn print_size(dir: &PathBuf, limit: Option<usize>) -> io::Result<()> {
-    let mut print_buf: Vec<u8> = Vec::with_capacity(4096);
-    let mut files = list_top_level(dir)?;
-    files.sort_by_key(|x| Reverse(x.size));
-    for (rank, mut f) in files.into_iter().enumerate() {
-        if f.size == 0 {
-            continue;
+fn parallel_size(path: &PathBuf, pb: &ProgressBar) -> u64 {
+    if path.is_dir() {
+        if let Ok(objects) = fs::read_dir(path) {
+            // Instead of for_each + Atomic, you can do:
+            let total: u64 = objects
+                .flatten()
+                .map(|x| x.path())
+                .collect::<Vec<PathBuf>>()
+                .into_par_iter()
+                .map(|entry| {
+                    pb.inc(1);
+                    parallel_size(&entry, pb)
+                }) // Each thread returns a number
+                .sum::<u64>(); // Rayon adds them all up at the end
+            return total;
         }
-        if rank + 1 > limit.unwrap_or(10) {
-            break;
-        }
-        let (size, dec, suffix) = f.fmt_size();
-        f.fmt_name();
-        writeln!(
-            &mut print_buf,
-            "{:<MAX_NAME_LEN$} {:>MAX_SIZE_LEN$}.{} {}",
-            f.name, size, dec, suffix
-        )?;
+    } else if path.is_file() {
+        return path.metadata().map(|x| x.len()).unwrap_or(0);
     }
-    let mut out = io::BufWriter::new(io::stdout());
-    out.write_all(&print_buf).unwrap();
-    out.flush().unwrap();
-    Ok(())
+    0
 }
-//
 
-fn list_top_level(path: &PathBuf) -> io::Result<Vec<BasicFile>> {
-    let mut processor = SizeScanner {
-        basic_files: Vec::new(),
-        total_size: 0,
-    };
-    let pb = ProgressBar::new_spinner();
+fn children_size(path: &PathBuf) -> std::io::Result<Vec<BasicFile>> {
+    let new_spinner = ProgressBar::new_spinner();
+    let pb = new_spinner;
+    let pb = Arc::new(pb);
     pb.set_style(
         ProgressStyle::default_spinner()
-            .template("{spinner:.green} {msg}") // {msg} is where the filename goes
+            .template("{spinner:.green} {msg}")
             .unwrap(),
     );
-    for entry in fs::read_dir(path)? {
-        let entry = entry?;
-        let meta = entry.metadata()?;
 
-        let name = entry.file_name().to_string_lossy().into_owned();
-        if meta.is_dir() {
-            walk_dir(&entry.path(), &mut processor, &pb)?;
-            processor.basic_files.push(BasicFile {
-                name,
-                size: processor.total_size,
-            });
-            processor.total_size = 0
-        } else if meta.is_file() {
-            processor.basic_files.push(BasicFile {
-                name,
-                size: meta.len() as u128,
-            });
-        }
-    }
-    pb.finish_with_message("Done!");
+    let entries: Vec<_> = fs::read_dir(path).unwrap().flatten().collect();
 
-    Ok(processor.basic_files)
+    // 1. calculate everything in parallel first!
+    // we store the (path, size) pairs in a new vec.
+    let mut results: Vec<BasicFile> = entries
+        .into_par_iter()
+        .map(|entry| {
+            let pb = Arc::clone(&pb);
+            let path = entry.path();
+            let name: String = path
+                .file_name()
+                .map(|x| x.to_string_lossy().into_owned())
+                .unwrap_or("UnknownName".to_owned());
+            if pb.length().unwrap_or(0) % 15 == 0 {
+                pb.set_message(format!("Reading {}...", name));
+            }
+            let size = parallel_size(&path, &pb);
+            BasicFile { name, size }
+        })
+        .collect();
+    pb.finish_and_clear();
+    results.sort_by_key(|x| Reverse(x.size));
+    Ok(results)
 }
 
-pub fn get_top_sizes(path: &PathBuf, limit: Option<usize>) -> io::Result<()> {
-    let metadata = fs::metadata(path)?;
-    if metadata.is_dir() {
-        print_size(path, limit)?
-    } else {
-        println!("{}", metadata.len());
-    };
+pub fn print_sizes(path: &PathBuf, limit: Option<usize>) -> std::io::Result<()> {
+    let files = children_size(path);
+    let mut print_buffer: Vec<u8> = Vec::new();
+    for (i, mut file) in files?.into_iter().enumerate() {
+        file.shorten_name();
+        let (num, dec, suffix) = file.fmt_size();
+        if i + 1 >= limit.unwrap_or(10) {
+            break;
+        }
+        writeln!(
+            &mut print_buffer,
+            "{:<MAX_NAME_LEN$} {:>MAX_SIZE_LEN$}.{} {}",
+            file.name, num, dec, suffix
+        )?;
+    }
+    let mut stdout = std::io::BufWriter::new(std::io::stdout().lock());
+    stdout.write_all(&print_buffer)?;
+    stdout.flush().unwrap();
     Ok(())
 }
