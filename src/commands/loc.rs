@@ -106,7 +106,7 @@ fn getf_name_ext(path: &PathBuf) -> Option<(&str, &str)> {
     None
 }
 
-pub fn print_loc(path: &PathBuf, top: Option<usize>) -> Result<(), Box<dyn std::error::Error>> {
+pub fn print_loc(path: &PathBuf, top: Option<usize>) -> io::Result<()> {
     let mut processor = LocScanner {
         code_files: Vec::new(),
         name_buffer: String::new(),
@@ -134,7 +134,7 @@ pub fn print_loc(path: &PathBuf, top: Option<usize>) -> Result<(), Box<dyn std::
         )?;
     }
     pb.finish_and_clear();
-    let mut outbuf = io::BufWriter::new(io::stdout());
+    let mut outbuf = io::stdout().lock();
     outbuf.write_all(&print_buf).unwrap();
     outbuf.flush().unwrap();
     Ok(())

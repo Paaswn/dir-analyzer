@@ -1,6 +1,12 @@
 use indicatif::{ProgressBar, ProgressStyle};
 use rayon::prelude::*;
-use std::{cmp::Reverse, fs, io::Write, path::PathBuf, sync::Arc};
+use std::{
+    cmp::Reverse,
+    fs,
+    io::{self, Read, Write},
+    path::PathBuf,
+    sync::Arc,
+};
 
 const MAX_SIZE_LEN: usize = 3;
 const MAX_NAME_LEN: usize = 30;
@@ -71,6 +77,19 @@ fn children_size(path: &PathBuf) -> std::io::Result<Vec<BasicFile>> {
     );
 
     let entries: Vec<_> = fs::read_dir(path).unwrap().flatten().collect();
+    let mut is_hdd: Vec<u8> = vec![b'n'];
+    print!("Is this folder an HDD (y / default: n): ");
+    io::stdout().flush().unwrap();
+    io::stdin().read_exact(&mut is_hdd)?;
+    is_hdd.flush().unwrap();
+
+    if is_hdd[0] == b'y' {
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(2)
+            .build_global()
+            .expect("Failed")
+    };
+
     let mut results: Vec<BasicFile> = entries
         .into_par_iter()
         .map(|entry| {
@@ -94,7 +113,7 @@ fn children_size(path: &PathBuf) -> std::io::Result<Vec<BasicFile>> {
 
 pub fn print_sizes(path: &PathBuf, limit: Option<usize>) -> std::io::Result<()> {
     let files = children_size(path);
-    let mut print_buffer: Vec<u8> = Vec::new();
+    let mut stdout = io::BufWriter::new(io::stdout().lock());
     for (i, mut file) in files?.into_iter().enumerate() {
         file.shorten_name();
         let (num, dec, suffix) = file.fmt_size();
@@ -102,13 +121,11 @@ pub fn print_sizes(path: &PathBuf, limit: Option<usize>) -> std::io::Result<()> 
             break;
         }
         writeln!(
-            &mut print_buffer,
+            &mut stdout,
             "{:<MAX_NAME_LEN$} {:>MAX_SIZE_LEN$}.{} {}",
             file.name, num, dec, suffix
         )?;
     }
-    let mut stdout = std::io::BufWriter::new(std::io::stdout().lock());
-    stdout.write_all(&print_buffer)?;
     stdout.flush().unwrap();
     Ok(())
 }
