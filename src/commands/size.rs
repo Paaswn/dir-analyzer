@@ -2,6 +2,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 use rayon::prelude::*;
 use std::{
     cmp::Reverse,
+    ffi::OsString,
     fs,
     io::{self, Write},
     path::PathBuf,
@@ -127,7 +128,7 @@ pub fn print_sizes(path: &PathBuf, limit: usize) -> std::io::Result<()> {
         fs::canonicalize(path)
             .unwrap()
             .file_name()
-            .unwrap()
+            .unwrap_or(&OsString::from("Drive"))
             .display()
     )?;
     let total_size = files.iter().fold(0, |acc, file| acc + file.size);
