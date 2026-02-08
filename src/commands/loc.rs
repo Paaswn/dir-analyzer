@@ -1,4 +1,6 @@
 //! ## A module to check a project's lines of code, *including* comments.
+use crate::utils::{Processor, walk_dir};
+use indicatif::{ProgressBar, ProgressStyle};
 use std::{
     cmp::Reverse,
     fmt::Write as fmtWrite,
@@ -6,9 +8,6 @@ use std::{
     io::{self, BufRead, BufReader, BufWriter, Write, stdout},
     path::PathBuf,
 };
-
-use crate::utils::{Processor, walk_dir};
-use indicatif::{ProgressBar, ProgressStyle};
 
 const MAX_SIZE_LEN: usize = 10;
 const MAX_NAME_LEN: usize = 30;
@@ -33,10 +32,23 @@ struct CodeFile {
 struct LocScanner {
     code_files: Vec<CodeFile>,
     name_buffer: String,
+    exclusive: ExclusiveExt,
+}
+pub enum ExclusiveExt {
+    Only(Vec<String>),
+    Ignore(Vec<String>),
+    None,
 }
 impl LocScanner {
     fn add_file(&mut self, file: CodeFile) {
         self.code_files.push(file);
+    }
+    fn new(excl: ExclusiveExt) -> Self {
+        Self {
+            code_files: Vec::new(),
+            name_buffer: String::new(),
+            exclusive: excl,
+        }
     }
 }
 impl Processor for LocScanner {
@@ -83,14 +95,15 @@ impl Processor for LocScanner {
     }
 
     fn is_file_compatible(&self, path: &PathBuf) -> bool {
-        if let Some(ext) = path.extension() {
-            if let Some(ext_str) = ext.to_str() {
-                if CODE_EXTENSIONS.contains(&ext_str) {
-                    return true;
+        path.extension()
+            .and_then(|ext| ext.to_str())
+            .is_some_and(|ext_str| match &self.exclusive {
+                ExclusiveExt::Ignore(ignores) => {
+                    CODE_EXTENSIONS.contains(&ext_str) && !ignores.contains(&ext_str.to_owned())
                 }
-            }
-        }
-        false
+                ExclusiveExt::Only(onlys) => onlys.contains(&ext_str.to_owned()),
+                ExclusiveExt::None => CODE_EXTENSIONS.contains(&ext_str),
+            })
     }
 }
 
@@ -111,10 +124,11 @@ fn getf_name_ext(path: &PathBuf) -> Option<(&str, &str)> {
     None
 }
 
-pub fn print_loc(path: &PathBuf, top: Option<usize>) -> io::Result<()> {
+pub fn print_loc(path: &PathBuf, top: usize, exclusive: ExclusiveExt) -> io::Result<()> {
     let mut processor = LocScanner {
         code_files: Vec::new(),
         name_buffer: String::new(),
+        exclusive,
     };
     let mut print_buf = BufWriter::new(stdout().lock());
     let pb = ProgressBar::new_spinner();
@@ -139,7 +153,7 @@ pub fn print_loc(path: &PathBuf, top: Option<usize>) -> io::Result<()> {
         if f.lines == 0 {
             continue;
         }
-        if rank + 1 >= top.unwrap_or(100) {
+        if rank + 1 >= top {
             break;
         }
         writeln!(

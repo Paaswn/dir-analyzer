@@ -119,7 +119,7 @@ fn children_size(path: &PathBuf) -> std::io::Result<Vec<BasicFile>> {
     Ok(results)
 }
 
-pub fn print_sizes(path: &PathBuf, limit: Option<usize>) -> std::io::Result<()> {
+pub fn print_sizes(path: &PathBuf, limit: usize) -> std::io::Result<()> {
     let files = children_size(path)?;
     let mut stdout = io::BufWriter::new(io::stdout().lock());
     writeln!(
@@ -135,7 +135,7 @@ pub fn print_sizes(path: &PathBuf, limit: Option<usize>) -> std::io::Result<()> 
     for (i, mut file) in files.into_iter().enumerate() {
         file.shorten_name();
         let (num, dec, suffix) = fmt_size(file.size);
-        if i + 1 >= limit.unwrap_or(10) {
+        if i + 1 >= limit {
             break;
         }
         writeln!(
