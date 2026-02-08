@@ -1,0 +1,41 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - run: cargo build --release
+
+      - name: Rename binary
+        shell: bash
+        run: |
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            mv target/release/dira.exe target/release/dira-${{ runner.os }}.exe
+          else
+            mv target/release/dira target/release/dira-${{ runner.os }}
+          fi
+
+      - name: Strip binary
+        if: runner.os != 'Windows'
+        run: strip target/release/dira-*
+
+      - name: Upload binary
+        uses: softprops/action-gh-release@v1
+        with:
+          files: target/release/dira-*
