@@ -159,6 +159,7 @@ name = "dira"
 version = "0.2.4"
 dependencies = [
  "clap",
+ "console",
  "indicatif",
  "rayon",
  "sysinfo",

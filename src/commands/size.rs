@@ -1,3 +1,4 @@
+use console::style;
 use indicatif::{ProgressBar, ProgressStyle};
 use rayon::prelude::*;
 use std::{
@@ -125,11 +126,14 @@ pub fn print_sizes(path: &PathBuf, limit: usize) -> std::io::Result<()> {
     writeln!(
         &mut stdout,
         "File sizes in {}:",
-        fs::canonicalize(path)
-            .unwrap()
-            .file_name()
-            .unwrap_or(&OsString::from("Drive"))
-            .display()
+        style(
+            fs::canonicalize(path)
+                .unwrap()
+                .file_name()
+                .unwrap_or(&OsString::from("Drive"))
+                .display()
+        )
+        .bold()
     )?;
     let total_size = files.iter().fold(0, |acc, file| acc + file.size);
     for (i, mut file) in files.into_iter().enumerate() {
@@ -145,7 +149,13 @@ pub fn print_sizes(path: &PathBuf, limit: usize) -> std::io::Result<()> {
         )?;
     }
     let (num, dec, suffix) = fmt_size(total_size);
-    writeln!(&mut stdout, "Total: {}.{} {}", num, dec, suffix)?;
+    writeln!(
+        &mut stdout,
+        "Total: {}.{} {}",
+        style(num).cyan(),
+        style(dec).cyan(),
+        suffix
+    )?;
     stdout.flush().unwrap();
     Ok(())
 }

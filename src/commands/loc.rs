@@ -1,9 +1,11 @@
 //! ## A module to check a project's lines of code, *including* comments.
 use super::constant::*;
 use crate::utils::{Processor, walk_dir};
+use console::style;
 use indicatif::{ProgressBar, ProgressStyle};
 use std::{
     cmp::Reverse,
+    ffi::OsString,
     fmt::Write as fmtWrite,
     fs,
     io::{self, BufRead, BufReader, BufWriter, Write, stdout},
@@ -123,11 +125,14 @@ pub fn print_loc(path: &PathBuf, top: usize, exclusive: ExclusiveExt) -> io::Res
     writeln!(
         &mut print_buf,
         "Locs written in {}:",
-        fs::canonicalize(path)
-            .unwrap()
-            .file_name()
-            .unwrap()
-            .display()
+        style(
+            fs::canonicalize(path)
+                .unwrap()
+                .file_name()
+                .unwrap_or(&OsString::from("Drive"))
+                .display()
+        )
+        .bold()
     )?;
     for (rank, f) in processor.code_files.into_iter().enumerate() {
         if f.lines == 0 {
@@ -139,10 +144,11 @@ pub fn print_loc(path: &PathBuf, top: usize, exclusive: ExclusiveExt) -> io::Res
         writeln!(
             &mut print_buf,
             "{:<MAX_NAME_LEN$} {:>MAX_SIZE_LEN$} loc",
-            f.name, f.lines
+            f.name,
+            style(f.lines).cyan()
         )?;
     }
-    writeln!(&mut print_buf, "Total: {} locs", total_loc)?;
+    writeln!(&mut print_buf, "Total: {} locs", style(total_loc).cyan())?;
     pb.finish_and_clear();
     print_buf.flush().unwrap();
     Ok(())
