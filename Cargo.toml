@@ -1,5 +1,5 @@
 [package]
-name = "dir-analyzer"
+name = "dira"
 version = "0.2.0"
 edition = "2024"
 
