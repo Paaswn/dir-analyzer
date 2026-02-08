@@ -30,7 +30,7 @@ pub enum Commands {
         #[arg(short, long, default_value_t = 100)]
         top: usize,
     },
-    /// Counts the lines of code (LOC) for files in a given project directory
+    /// Count lines of code (LOC) for files within a project directory. Note that this command is considerably slower than `dira size` and is best suited for project-specific analysis.
     Loc {
         /// Path to the project directory. Defaults to the current directory
         #[arg(short, long)]

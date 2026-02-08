@@ -1,4 +1,5 @@
 //! ## A module to check a project's lines of code, *including* comments.
+use super::constant::*;
 use crate::utils::{Processor, walk_dir};
 use indicatif::{ProgressBar, ProgressStyle};
 use std::{
@@ -8,23 +9,6 @@ use std::{
     io::{self, BufRead, BufReader, BufWriter, Write, stdout},
     path::PathBuf,
 };
-
-const MAX_SIZE_LEN: usize = 10;
-const MAX_NAME_LEN: usize = 30;
-const CODE_EXTENSIONS: &[&'static str] = &[
-    "rs", "js", "ts", "py", "java", "c", "cpp", "h", "hpp", "go", "rb", "php", "swift", "kt", "cs",
-    "lua", "pl", "sh", "bash", "html", "css", "scss", "sass", "less", "md", "txt",
-];
-
-const IGNORE_DIRS: &[&str] = &[
-    ".git",
-    "target",
-    "node_modules",
-    ".idea",
-    "dist",
-    ".venv",
-    ".env",
-];
 struct CodeFile {
     name: String,
     lines: usize,
@@ -125,11 +109,7 @@ fn getf_name_ext(path: &PathBuf) -> Option<(&str, &str)> {
 }
 
 pub fn print_loc(path: &PathBuf, top: usize, exclusive: ExclusiveExt) -> io::Result<()> {
-    let mut processor = LocScanner {
-        code_files: Vec::new(),
-        name_buffer: String::new(),
-        exclusive,
-    };
+    let mut processor = LocScanner::new(exclusive);
     let mut print_buf = BufWriter::new(stdout().lock());
     let pb = ProgressBar::new_spinner();
     pb.set_style(
