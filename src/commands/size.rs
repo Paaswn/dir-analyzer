@@ -145,7 +145,10 @@ pub fn print_sizes(path: &PathBuf, limit: usize) -> std::io::Result<()> {
         writeln!(
             &mut stdout,
             "{:<MAX_NAME_LEN$} {:>MAX_SIZE_LEN$}.{} {}",
-            file.name, num, dec, suffix
+            file.name,
+            style(num).cyan(),
+            style(dec).cyan(),
+            suffix
         )?;
     }
     let (num, dec, suffix) = fmt_size(total_size);

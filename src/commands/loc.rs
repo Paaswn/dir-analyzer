@@ -63,7 +63,14 @@ impl Processor for LocScanner {
         pb.tick();
         let content = fs::File::open(file)?;
         let reader = BufReader::new(content);
-        let loc = reader.split(b'\n').count();
+        let loc = reader
+            .split(b'\n')
+            .filter_map(Result::ok)
+            .filter(|line| {
+                let line = line.strip_suffix(b"\r").unwrap_or(line);
+                !line.is_empty()
+            })
+            .count();
         self.add_file(CodeFile {
             name: self.name_buffer.clone(),
             lines: loc,
