@@ -66,11 +66,10 @@ fn parallel_size(path: &PathBuf, pb: &ProgressBar) -> u64 {
     0
 }
 
-fn is_hdd() -> bool {
-    let current_dir = std::env::current_dir().unwrap();
+fn is_hdd(path: &PathBuf) -> bool {
     let sys = sysinfo::Disks::new_with_refreshed_list();
     for disk in sys.list() {
-        if current_dir.starts_with(disk.mount_point()) {
+        if path.starts_with(disk.mount_point()) {
             match disk.kind() {
                 sysinfo::DiskKind::HDD => return true,
                 sysinfo::DiskKind::SSD => return false,
@@ -92,7 +91,7 @@ fn children_size(path: &PathBuf) -> std::io::Result<Vec<BasicFile>> {
 
     let entries: Vec<_> = fs::read_dir(path).unwrap().flatten().collect();
 
-    if is_hdd() {
+    if is_hdd(path) {
         rayon::ThreadPoolBuilder::new()
             .num_threads(2)
             .build_global()
