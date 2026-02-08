@@ -48,6 +48,8 @@ pub fn parsing() -> Result<(), Box<dyn std::error::Error>> {
             Commands::Loc { path, top } => {
                 if let Some(path) = path {
                     loc::print_loc(path, *top)?;
+                } else {
+                    loc::print_loc(&PathBuf::from("."), *top)?;
                 }
             }
         },

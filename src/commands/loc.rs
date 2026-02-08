@@ -3,7 +3,7 @@ use std::{
     cmp::Reverse,
     fmt::Write as fmtWrite,
     fs,
-    io::{self, BufRead, BufReader, Write},
+    io::{self, BufRead, BufReader, BufWriter, Write, stdout},
     path::PathBuf,
 };
 
@@ -34,6 +34,11 @@ struct LocScanner {
     code_files: Vec<CodeFile>,
     name_buffer: String,
 }
+impl LocScanner {
+    fn add_file(&mut self, file: CodeFile) {
+        self.code_files.push(file);
+    }
+}
 impl Processor for LocScanner {
     type Custom = io::Result<()>;
 
@@ -61,7 +66,7 @@ impl Processor for LocScanner {
         let content = fs::File::open(file)?;
         let reader = BufReader::new(content);
         let loc = reader.split(b'\n').count();
-        self.code_files.push(CodeFile {
+        self.add_file(CodeFile {
             name: self.name_buffer.clone(),
             lines: loc,
         });
@@ -111,7 +116,7 @@ pub fn print_loc(path: &PathBuf, top: Option<usize>) -> io::Result<()> {
         code_files: Vec::new(),
         name_buffer: String::new(),
     };
-    let mut print_buf: Vec<u8> = Vec::with_capacity(4096);
+    let mut print_buf = BufWriter::new(stdout().lock());
     let pb = ProgressBar::new_spinner();
     pb.set_style(
         ProgressStyle::default_spinner()
@@ -120,11 +125,21 @@ pub fn print_loc(path: &PathBuf, top: Option<usize>) -> io::Result<()> {
     );
     walk_dir(path, &mut processor, &pb)?;
     processor.code_files.sort_by_key(|x| Reverse(x.lines));
+    let total_loc = total_loc(&processor);
+    writeln!(
+        &mut print_buf,
+        "Locs written in {}:",
+        fs::canonicalize(path)
+            .unwrap()
+            .file_name()
+            .unwrap()
+            .display()
+    )?;
     for (rank, f) in processor.code_files.into_iter().enumerate() {
         if f.lines == 0 {
             continue;
         }
-        if rank + 1 >= top.unwrap_or(10) {
+        if rank + 1 >= top.unwrap_or(100) {
             break;
         }
         writeln!(
@@ -133,9 +148,15 @@ pub fn print_loc(path: &PathBuf, top: Option<usize>) -> io::Result<()> {
             f.name, f.lines
         )?;
     }
+    writeln!(&mut print_buf, "Total: {} locs", total_loc)?;
     pb.finish_and_clear();
-    let mut outbuf = io::stdout().lock();
-    outbuf.write_all(&print_buf).unwrap();
-    outbuf.flush().unwrap();
+    print_buf.flush().unwrap();
     Ok(())
+}
+
+fn total_loc(scanner: &LocScanner) -> usize {
+    scanner
+        .code_files
+        .iter()
+        .fold(0, |acc, loc| acc + loc.lines)
 }

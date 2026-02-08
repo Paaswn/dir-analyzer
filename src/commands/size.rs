@@ -3,7 +3,7 @@ use rayon::prelude::*;
 use std::{
     cmp::Reverse,
     fs,
-    io::{self, Read, Write},
+    io::{self, Write},
     path::PathBuf,
     sync::Arc,
 };
@@ -25,25 +25,25 @@ impl BasicFile {
             self.name = cropped_name;
         }
     }
-    #[inline]
-    fn fmt_size(&self) -> (u64, u8, &'static str) {
-        let (unit, suffix) = if self.size >= 1_000_000_000_000 {
-            (1_000_000_000_000, "TB")
-        } else if self.size >= 1_000_000_000 {
-            (1_000_000_000, "GB")
-        } else if self.size >= 1_000_000 {
-            (1_000_000, "MB")
-        } else if self.size >= 1_000 {
-            (1_000, "kB")
-        } else {
-            return (self.size, 0, "B");
-        };
-        let int_part = self.size / unit;
-        let rem = self.size % unit;
-        let frac = ((rem * 10) / unit) as u8;
+}
+#[inline]
+fn fmt_size(size: u64) -> (u64, u8, &'static str) {
+    let (unit, suffix) = if size >= 1_000_000_000_000 {
+        (1_000_000_000_000, "TB")
+    } else if size >= 1_000_000_000 {
+        (1_000_000_000, "GB")
+    } else if size >= 1_000_000 {
+        (1_000_000, "MB")
+    } else if size >= 1_000 {
+        (1_000, "kB")
+    } else {
+        return (size, 0, "B");
+    };
+    let int_part = size / unit;
+    let rem = size % unit;
+    let frac = ((rem * 10) / unit) as u8;
 
-        (int_part, frac, suffix)
-    }
+    (int_part, frac, suffix)
 }
 fn parallel_size(path: &PathBuf, pb: &ProgressBar) -> u64 {
     if path.is_dir() {
@@ -66,6 +66,20 @@ fn parallel_size(path: &PathBuf, pb: &ProgressBar) -> u64 {
     0
 }
 
+fn is_hdd() -> bool {
+    let current_dir = std::env::current_dir().unwrap();
+    let sys = sysinfo::Disks::new_with_refreshed_list();
+    for disk in sys.list() {
+        if current_dir.starts_with(disk.mount_point()) {
+            match disk.kind() {
+                sysinfo::DiskKind::HDD => return true,
+                sysinfo::DiskKind::SSD => return false,
+                _ => return true,
+            }
+        }
+    }
+    true
+}
 fn children_size(path: &PathBuf) -> std::io::Result<Vec<BasicFile>> {
     let new_spinner = ProgressBar::new_spinner();
     let pb = new_spinner;
@@ -77,19 +91,13 @@ fn children_size(path: &PathBuf) -> std::io::Result<Vec<BasicFile>> {
     );
 
     let entries: Vec<_> = fs::read_dir(path).unwrap().flatten().collect();
-    let mut is_hdd: Vec<u8> = vec![b'n'];
-    print!("Is this folder an HDD (y / default: n): ");
-    io::stdout().flush().unwrap();
-    io::stdin().read_exact(&mut is_hdd)?;
-    is_hdd.flush().unwrap();
 
-    if is_hdd[0] == b'y' {
+    if is_hdd() {
         rayon::ThreadPoolBuilder::new()
             .num_threads(2)
             .build_global()
             .expect("Failed")
     };
-
     let mut results: Vec<BasicFile> = entries
         .into_par_iter()
         .map(|entry| {
@@ -112,11 +120,21 @@ fn children_size(path: &PathBuf) -> std::io::Result<Vec<BasicFile>> {
 }
 
 pub fn print_sizes(path: &PathBuf, limit: Option<usize>) -> std::io::Result<()> {
-    let files = children_size(path);
+    let files = children_size(path)?;
     let mut stdout = io::BufWriter::new(io::stdout().lock());
-    for (i, mut file) in files?.into_iter().enumerate() {
+    writeln!(
+        &mut stdout,
+        "File sizes in {}:",
+        fs::canonicalize(path)
+            .unwrap()
+            .file_name()
+            .unwrap()
+            .display()
+    )?;
+    let total_size = files.iter().fold(0, |acc, file| acc + file.size);
+    for (i, mut file) in files.into_iter().enumerate() {
         file.shorten_name();
-        let (num, dec, suffix) = file.fmt_size();
+        let (num, dec, suffix) = fmt_size(file.size);
         if i + 1 >= limit.unwrap_or(10) {
             break;
         }
@@ -126,6 +144,8 @@ pub fn print_sizes(path: &PathBuf, limit: Option<usize>) -> std::io::Result<()> 
             file.name, num, dec, suffix
         )?;
     }
+    let (num, dec, suffix) = fmt_size(total_size);
+    writeln!(&mut stdout, "Total: {}.{} {}", num, dec, suffix)?;
     stdout.flush().unwrap();
     Ok(())
 }
