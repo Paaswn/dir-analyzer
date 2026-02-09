@@ -9,7 +9,7 @@ use std::{
     fmt::Write as fmtWrite,
     fs,
     io::{self, BufRead, BufReader, BufWriter, Write, stdout},
-    path::{Path, PathBuf},
+    path::Path,
 };
 struct CodeFile {
     name: String,
