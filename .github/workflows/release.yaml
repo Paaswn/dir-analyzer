@@ -36,6 +36,7 @@ jobs:
         run: strip target/release/dira-*
 
       - name: Upload binary
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
+          prerelease: ${{ contains(github.ref_name, '-') }}
           files: target/release/dira-*
