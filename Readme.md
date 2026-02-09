@@ -1,4 +1,4 @@
-# diran - A high-performance directory analyzer
+# dira - A directory analyzer
 
 ## Quick Start
 
