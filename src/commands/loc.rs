@@ -9,7 +9,7 @@ use std::{
     fmt::Write as fmtWrite,
     fs,
     io::{self, BufRead, BufReader, BufWriter, Write, stdout},
-    path::PathBuf,
+    path::{Path, PathBuf},
 };
 struct CodeFile {
     name: String,
@@ -40,7 +40,7 @@ impl LocScanner {
 impl Processor for LocScanner {
     type Custom = io::Result<()>;
 
-    fn process_file(&mut self, file: &PathBuf, pb: &ProgressBar) -> io::Result<()> {
+    fn process_file(&mut self, file: &Path, pb: &ProgressBar) -> io::Result<()> {
         fn name_shorten(buffer: &mut String, extension: &str, file_name: &str) -> std::fmt::Result {
             buffer.write_fmt(format_args!(
                 "{}...{}",
@@ -79,7 +79,7 @@ impl Processor for LocScanner {
         Ok(())
     }
 
-    fn is_dir_compatible(&self, path: &PathBuf) -> bool {
+    fn is_dir_compatible(&self, path: &Path) -> bool {
         let dir_name = path.file_name().and_then(|x| x.to_str()).unwrap();
         if IGNORE_DIRS.contains(&dir_name) {
             return false;
@@ -87,7 +87,7 @@ impl Processor for LocScanner {
         true
     }
 
-    fn is_file_compatible(&self, path: &PathBuf) -> bool {
+    fn is_file_compatible(&self, path: &Path) -> bool {
         path.extension()
             .and_then(|ext| ext.to_str())
             .is_some_and(|ext_str| match &self.exclusive {
@@ -100,7 +100,7 @@ impl Processor for LocScanner {
     }
 }
 
-fn getf_name_ext(path: &PathBuf) -> Option<(&str, &str)> {
+fn getf_name_ext(path: &Path) -> Option<(&str, &str)> {
     let name = path.file_name();
     let ext = path.extension();
     match (name, ext) {
@@ -117,7 +117,7 @@ fn getf_name_ext(path: &PathBuf) -> Option<(&str, &str)> {
     None
 }
 
-pub fn print_loc(path: &PathBuf, top: usize, exclusive: ExclusiveExt) -> io::Result<()> {
+pub fn print_loc(path: &Path, top: usize, exclusive: ExclusiveExt) -> io::Result<()> {
     let mut processor = LocScanner::new(exclusive);
     let mut print_buf = BufWriter::new(stdout().lock());
     let pb = ProgressBar::new_spinner();

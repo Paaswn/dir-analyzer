@@ -1,16 +1,16 @@
-use std::{fs, io, path::PathBuf};
+use std::{fs, io, path::Path};
 
 pub trait Processor {
     type Custom;
-    fn process_file(&mut self, path: &PathBuf, pb: &indicatif::ProgressBar) -> Self::Custom;
-    fn is_dir_compatible(&self, _path: &PathBuf) -> bool {
+    fn process_file(&mut self, path: &Path, pb: &indicatif::ProgressBar) -> Self::Custom;
+    fn is_dir_compatible(&self, _path: &Path) -> bool {
         true
     }
-    fn is_file_compatible(&self, _path: &PathBuf) -> bool {
+    fn is_file_compatible(&self, _path: &Path) -> bool {
         true
     }
 }
-pub fn walk_dir<P>(path: &PathBuf, processor: &mut P, pb: &indicatif::ProgressBar) -> io::Result<()>
+pub fn walk_dir<P>(path: &Path, processor: &mut P, pb: &indicatif::ProgressBar) -> io::Result<()>
 where
     P: Processor,
 {

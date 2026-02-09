@@ -1,11 +1,11 @@
 use crate::commands::loc::{self, ExclusiveExt};
 use crate::commands::size;
 use clap::{Parser, Subcommand};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Parser)]
 #[command(name = "dira")]
-#[command(version = "0.2.1")]
+#[command(version = "0.2.6")]
 #[command(about = "A CLI tool to analyze directories", long_about = None)]
 #[command(arg_required_else_help = true)]
 struct Cli {
@@ -15,12 +15,6 @@ struct Cli {
 
 #[derive(Subcommand)]
 pub enum Commands {
-    /// A basic scan command (currently a placeholder)
-    Scan {
-        /// The path to the directory to scan. Defaults to the current directory.
-        #[arg(short, long)]
-        path: Option<PathBuf>,
-    },
     /// Calculates the size of files and subdirectories in a given path
     Size {
         /// Path to the directory to analyze. Defaults to the current directory
@@ -49,18 +43,9 @@ pub enum Commands {
 
 pub fn parsing() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
-    match &cli.command {
-        Commands::Scan { path } => {
-            if let Some(path) = path {
-                println!("{:?}", path);
-            }
-        }
+    match cli.command {
         Commands::Size { path, top } => {
-            if let Some(path) = path {
-                size::print_sizes(&path, *top)?;
-            } else {
-                size::print_sizes(&PathBuf::from("."), *top)?;
-            }
+            size::print_sizes(path.as_deref().unwrap_or_else(|| Path::new(".")), top)?;
         }
         Commands::Loc {
             path,
@@ -68,17 +53,13 @@ pub fn parsing() -> Result<(), Box<dyn std::error::Error>> {
             only,
             ignore,
         } => {
-            let path = if let Some(path) = path {
-                path
-            } else {
-                &PathBuf::from(".")
-            };
+            let path = path.as_deref().unwrap_or_else(|| Path::new("."));
             if let Some(only) = only {
-                loc::print_loc(path, *top, ExclusiveExt::Only(only.clone()))?;
+                loc::print_loc(path, top, ExclusiveExt::Only(only))?;
             } else if let Some(ignore) = ignore {
-                loc::print_loc(path, *top, ExclusiveExt::Ignore(ignore.clone()))?;
+                loc::print_loc(path, top, ExclusiveExt::Ignore(ignore))?;
             } else {
-                loc::print_loc(path, *top, ExclusiveExt::None)?;
+                loc::print_loc(path, top, ExclusiveExt::None)?;
             }
         }
     }
