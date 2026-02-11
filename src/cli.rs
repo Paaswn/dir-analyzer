@@ -1,4 +1,4 @@
-use crate::commands::loc::{self, ExclusiveExt};
+use crate::commands::loc::{self, Extension};
 use crate::commands::size;
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
@@ -74,11 +74,11 @@ pub fn parsing() -> Result<(), Box<dyn std::error::Error>> {
                 &PathBuf::from(".")
             };
             if let Some(only) = only {
-                loc::print_loc(path, *top, ExclusiveExt::Only(only.clone()))?;
+                loc::print_loc(path, *top, Extension::Only(only.clone()))?;
             } else if let Some(ignore) = ignore {
-                loc::print_loc(path, *top, ExclusiveExt::Ignore(ignore.clone()))?;
+                loc::print_loc(path, *top, Extension::Ignore(ignore.clone()))?;
             } else {
-                loc::print_loc(path, *top, ExclusiveExt::None)?;
+                loc::print_loc(path, *top, Extension::Default)?;
             }
         }
     }

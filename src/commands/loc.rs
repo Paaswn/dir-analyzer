@@ -18,22 +18,22 @@ struct CodeFile {
 struct LocScanner {
     code_files: Vec<CodeFile>,
     name_buffer: String,
-    exclusive: ExclusiveExt,
+    extension: Extension,
 }
-pub enum ExclusiveExt {
+pub enum Extension {
     Only(Vec<String>),
     Ignore(Vec<String>),
-    None,
+    Default,
 }
 impl LocScanner {
     fn add_file(&mut self, file: CodeFile) {
         self.code_files.push(file);
     }
-    fn new(excl: ExclusiveExt) -> Self {
+    fn new(excl: Extension) -> Self {
         Self {
             code_files: Vec::new(),
             name_buffer: String::new(),
-            exclusive: excl,
+            extension: excl,
         }
     }
 }
@@ -90,12 +90,12 @@ impl Processor for LocScanner {
     fn is_file_compatible(&self, path: &PathBuf) -> bool {
         path.extension()
             .and_then(|ext| ext.to_str())
-            .is_some_and(|ext_str| match &self.exclusive {
-                ExclusiveExt::Ignore(ignores) => {
+            .is_some_and(|ext_str| match &self.extension {
+                Extension::Ignore(ignores) => {
                     CODE_EXTENSIONS.contains(&ext_str) && !ignores.contains(&ext_str.to_owned())
                 }
-                ExclusiveExt::Only(onlys) => onlys.contains(&ext_str.to_owned()),
-                ExclusiveExt::None => CODE_EXTENSIONS.contains(&ext_str),
+                Extension::Only(onlys) => onlys.contains(&ext_str.to_owned()),
+                Extension::Default => CODE_EXTENSIONS.contains(&ext_str),
             })
     }
 }
@@ -117,7 +117,7 @@ fn getf_name_ext(path: &PathBuf) -> Option<(&str, &str)> {
     None
 }
 
-pub fn print_loc(path: &PathBuf, top: usize, exclusive: ExclusiveExt) -> io::Result<()> {
+pub fn print_loc(path: &PathBuf, top: usize, exclusive: Extension) -> io::Result<()> {
     let mut processor = LocScanner::new(exclusive);
     let mut print_buf = BufWriter::new(stdout().lock());
     let pb = ProgressBar::new_spinner();
