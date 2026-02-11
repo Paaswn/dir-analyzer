@@ -6,7 +6,7 @@ use std::{
     ffi::OsString,
     fs,
     io::{self, Write},
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::Arc,
 };
 
@@ -47,7 +47,7 @@ fn fmt_size(size: u64) -> (u64, u8, &'static str) {
 
     (int_part, frac, suffix)
 }
-fn parallel_size(path: &PathBuf, pb: &ProgressBar) -> u64 {
+fn parallel_size(path: &Path, pb: &ProgressBar) -> u64 {
     if path.is_dir() {
         if let Ok(objects) = fs::read_dir(path) {
             let total: u64 = objects
@@ -68,7 +68,7 @@ fn parallel_size(path: &PathBuf, pb: &ProgressBar) -> u64 {
     0
 }
 
-fn is_hdd(path: &PathBuf) -> bool {
+fn is_hdd(path: &Path) -> bool {
     let sys = sysinfo::Disks::new_with_refreshed_list();
     for disk in sys.list() {
         if path.starts_with(disk.mount_point()) {
@@ -81,7 +81,7 @@ fn is_hdd(path: &PathBuf) -> bool {
     }
     true
 }
-fn children_size(path: &PathBuf) -> std::io::Result<Vec<BasicFile>> {
+fn children_size(path: &Path) -> std::io::Result<Vec<BasicFile>> {
     let new_spinner = ProgressBar::new_spinner();
     let pb = new_spinner;
     let pb = Arc::new(pb);
@@ -120,7 +120,7 @@ fn children_size(path: &PathBuf) -> std::io::Result<Vec<BasicFile>> {
     Ok(results)
 }
 
-pub fn print_sizes(path: &PathBuf, limit: usize) -> std::io::Result<()> {
+pub fn print_sizes(path: &Path, limit: usize) -> std::io::Result<()> {
     let files = children_size(path)?;
     let mut stdout = io::BufWriter::new(io::stdout().lock());
     writeln!(

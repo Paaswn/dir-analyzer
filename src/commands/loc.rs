@@ -7,18 +7,24 @@ use std::{
     cmp::Reverse,
     ffi::OsString,
     fmt::Write as fmtWrite,
-    fs,
+    fs::{self, File},
     io::{self, BufRead, BufReader, BufWriter, Write, stdout},
-    path::PathBuf,
+    path::Path,
 };
 struct CodeFile {
     name: String,
     lines: usize,
 }
-struct LocScanner {
+pub struct LocScanner {
     code_files: Vec<CodeFile>,
     name_buffer: String,
     extension: Extension,
+    layout: PrintLayout,
+    limit: usize,
+}
+pub enum PrintLayout {
+    OneLine,
+    Nested,
 }
 pub enum Extension {
     Only(Vec<String>),
@@ -29,18 +35,32 @@ impl LocScanner {
     fn add_file(&mut self, file: CodeFile) {
         self.code_files.push(file);
     }
-    fn new(excl: Extension) -> Self {
+    fn new() -> Self {
         Self {
             code_files: Vec::new(),
             name_buffer: String::new(),
-            extension: excl,
+            extension: Extension::Default,
+            layout: PrintLayout::OneLine,
+            limit: 100,
         }
+    }
+    fn layout(&mut self, layout: PrintLayout) {
+        self.layout = layout;
+    }
+    fn extension(&mut self, ext: Extension) {
+        self.extension = ext;
+    }
+    fn print_layout(&self) {
+        match self.layout {
+            PrintLayout::Nested => (),
+            PrintLayout::OneLine => (),
+        };
     }
 }
 impl Processor for LocScanner {
     type Custom = io::Result<()>;
 
-    fn process_file(&mut self, file: &PathBuf, pb: &ProgressBar) -> io::Result<()> {
+    fn process_file(&mut self, file: &Path, pb: &ProgressBar) -> io::Result<()> {
         fn name_shorten(buffer: &mut String, extension: &str, file_name: &str) -> std::fmt::Result {
             buffer.write_fmt(format_args!(
                 "{}...{}",
@@ -49,7 +69,17 @@ impl Processor for LocScanner {
             ))?;
             Ok(())
         }
-        if let Some((name, ext)) = getf_name_ext(file) {
+        fn get_loc(reader: BufReader<File>) -> usize {
+            reader
+                .split(b'\n')
+                .filter_map(Result::ok)
+                .filter(|line| {
+                    let line = line.strip_suffix(b"\r").unwrap_or(line);
+                    !line.is_empty()
+                })
+                .count()
+        }
+        if let Some((name, ext)) = get_file_name(file) {
             if name.chars().count() > MAX_NAME_LEN {
                 name_shorten(&mut self.name_buffer, ext, name).unwrap();
                 pb.set_message(format!("Reading {}...", self.name_buffer));
@@ -63,14 +93,7 @@ impl Processor for LocScanner {
         pb.tick();
         let content = fs::File::open(file)?;
         let reader = BufReader::new(content);
-        let loc = reader
-            .split(b'\n')
-            .filter_map(Result::ok)
-            .filter(|line| {
-                let line = line.strip_suffix(b"\r").unwrap_or(line);
-                !line.is_empty()
-            })
-            .count();
+        let loc = get_loc(reader);
         self.add_file(CodeFile {
             name: self.name_buffer.clone(),
             lines: loc,
@@ -79,7 +102,7 @@ impl Processor for LocScanner {
         Ok(())
     }
 
-    fn is_dir_compatible(&self, path: &PathBuf) -> bool {
+    fn is_dir_compatible(&self, path: &Path) -> bool {
         let dir_name = path.file_name().and_then(|x| x.to_str()).unwrap();
         if IGNORE_DIRS.contains(&dir_name) {
             return false;
@@ -87,7 +110,7 @@ impl Processor for LocScanner {
         true
     }
 
-    fn is_file_compatible(&self, path: &PathBuf) -> bool {
+    fn is_file_compatible(&self, path: &Path) -> bool {
         path.extension()
             .and_then(|ext| ext.to_str())
             .is_some_and(|ext_str| match &self.extension {
@@ -100,7 +123,7 @@ impl Processor for LocScanner {
     }
 }
 
-fn getf_name_ext(path: &PathBuf) -> Option<(&str, &str)> {
+fn get_file_name(path: &Path) -> Option<(&str, &str)> {
     let name = path.file_name();
     let ext = path.extension();
     match (name, ext) {
@@ -117,8 +140,8 @@ fn getf_name_ext(path: &PathBuf) -> Option<(&str, &str)> {
     None
 }
 
-pub fn print_loc(path: &PathBuf, top: usize, exclusive: Extension) -> io::Result<()> {
-    let mut processor = LocScanner::new(exclusive);
+pub fn print_loc(path: &Path, top: usize, exclusive: Extension) -> io::Result<()> {
+    let mut processor = LocScanner::new();
     let mut print_buf = BufWriter::new(stdout().lock());
     let pb = ProgressBar::new_spinner();
     pb.set_style(
