@@ -4,7 +4,7 @@ use crate::utils::{Processor, walk_dir};
 use console::style;
 use indicatif::{ProgressBar, ProgressStyle};
 use std::{
-    cmp::Reverse,
+    cmp::{Ordering, Reverse},
     ffi::OsString,
     fmt::Write as fmtWrite,
     fs::{self, File},
@@ -55,6 +55,17 @@ impl LocScanner {
             PrintLayout::Nested => (),
             PrintLayout::OneLine => (),
         };
+    }
+    fn sort_files(&mut self, cmp: Ordering) {
+        match cmp {
+            Ordering::Greater => {
+                self.code_files.sort_by_key(|f| Reverse(f.lines));
+            }
+            Ordering::Less => {
+                self.code_files.sort_by_key(|f| f.lines);
+            }
+            _ => (),
+        }
     }
 }
 impl Processor for LocScanner {
