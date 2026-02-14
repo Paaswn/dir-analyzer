@@ -1,4 +1,4 @@
-use crate::commands::loc::{self, Extension, LocScanner, PrintLayout, print_loc};
+use crate::commands::loc::{Extension, LocScanner, PrintLayout, print_loc};
 use crate::commands::size;
 use clap::{Parser, Subcommand};
 use std::cmp::Ordering;
@@ -47,7 +47,7 @@ pub enum Commands {
         ignore: Option<Vec<String>>,
         #[arg(long)]
         nested: bool,
-        #[arg(long, default_value_t = true, conflicts_with = "nested")]
+        #[arg(long, conflicts_with = "nested")]
         one_line: bool,
         #[arg(short, long, conflicts_with = "descending")]
         ascending: bool,
@@ -90,7 +90,7 @@ pub fn parsing() -> Result<(), Box<dyn std::error::Error>> {
             let order = match (ascending, descending) {
                 (true, false) => Ordering::Less,
                 (false, true) => Ordering::Greater,
-                _ => Ordering::Equal,
+                _ => Ordering::Greater,
             };
             let layout = if nested && !one_line {
                 PrintLayout::Nested
