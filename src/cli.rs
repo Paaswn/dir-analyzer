@@ -1,11 +1,12 @@
-use crate::commands::loc::{self, Extension};
+use crate::commands::loc::{self, Extension, LocScanner, PrintLayout, print_loc};
 use crate::commands::size;
 use clap::{Parser, Subcommand};
-use std::path::PathBuf;
+use std::cmp::Ordering;
+use std::path::{Path, PathBuf};
 
 #[derive(Parser)]
 #[command(name = "dira")]
-#[command(version = "0.2.1")]
+#[command(version)]
 #[command(about = "A CLI tool to analyze directories", long_about = None)]
 #[command(arg_required_else_help = true)]
 struct Cli {
@@ -44,12 +45,20 @@ pub enum Commands {
         /// A comma-separated list of additional file extensions to ignore
         #[arg(long, value_delimiter = ',', conflicts_with = "only")]
         ignore: Option<Vec<String>>,
+        #[arg(long)]
+        nested: bool,
+        #[arg(long, default_value_t = true, conflicts_with = "nested")]
+        one_line: bool,
+        #[arg(short, long, conflicts_with = "descending")]
+        ascending: bool,
+        #[arg(short, long)]
+        descending: bool,
     },
 }
 
 pub fn parsing() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
-    match &cli.command {
+    match cli.command {
         Commands::Scan { path } => {
             if let Some(path) = path {
                 println!("{:?}", path);
@@ -57,9 +66,9 @@ pub fn parsing() -> Result<(), Box<dyn std::error::Error>> {
         }
         Commands::Size { path, top } => {
             if let Some(path) = path {
-                size::print_sizes(&path, *top)?;
+                size::print_sizes(&path, top)?;
             } else {
-                size::print_sizes(&PathBuf::from("."), *top)?;
+                size::print_sizes(&PathBuf::from("."), top)?;
             }
         }
         Commands::Loc {
@@ -67,19 +76,36 @@ pub fn parsing() -> Result<(), Box<dyn std::error::Error>> {
             top,
             only,
             ignore,
+            nested,
+            one_line,
+            ascending,
+            descending,
         } => {
-            let path = if let Some(path) = path {
-                path
-            } else {
-                &PathBuf::from(".")
+            let path: &Path = path.as_deref().unwrap_or_else(|| Path::new("."));
+            let extension = match (only, ignore) {
+                (Some(o), None) => Extension::Only(o),
+                (None, Some(i)) => Extension::Ignore(i),
+                _ => Extension::Default,
             };
-            if let Some(only) = only {
-                loc::print_loc(path, *top, Extension::Only(only.clone()))?;
-            } else if let Some(ignore) = ignore {
-                loc::print_loc(path, *top, Extension::Ignore(ignore.clone()))?;
+            let order = match (ascending, descending) {
+                (true, false) => Ordering::Less,
+                (false, true) => Ordering::Greater,
+                _ => Ordering::Equal,
+            };
+            let layout = if nested && !one_line {
+                PrintLayout::Nested
             } else {
-                loc::print_loc(path, *top, Extension::Default)?;
-            }
+                PrintLayout::OneLine
+            };
+            let scanner = LocScanner {
+                extension,
+                code_files: vec![],
+                name_buffer: String::new(),
+                limit: top,
+                layout,
+                order,
+            };
+            print_loc(&path, scanner)?;
         }
     }
     Ok(())

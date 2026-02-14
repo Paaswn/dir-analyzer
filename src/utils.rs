@@ -10,10 +10,11 @@ pub trait Processor {
         true
     }
 }
-pub fn walk_dir<P>(path: &Path, processor: &mut P, pb: &indicatif::ProgressBar) -> io::Result<()>
-where
-    P: Processor,
-{
+pub fn walk_dir(
+    path: &Path,
+    processor: &mut impl Processor,
+    pb: &indicatif::ProgressBar,
+) -> io::Result<()> {
     let dir = match fs::read_dir(path) {
         Ok(d) => d,
         Err(_) => return Ok(()),

@@ -8,19 +8,20 @@ use std::{
     ffi::OsString,
     fmt::Write as fmtWrite,
     fs::{self, File},
-    io::{self, BufRead, BufReader, BufWriter, Write, stdout},
+    io::{self, BufRead, BufReader, BufWriter, StdoutLock, Write, stdout},
     path::Path,
 };
-struct CodeFile {
+pub struct CodeFile {
     name: String,
     lines: usize,
 }
 pub struct LocScanner {
-    code_files: Vec<CodeFile>,
-    name_buffer: String,
-    extension: Extension,
-    layout: PrintLayout,
-    limit: usize,
+    pub extension: Extension,
+    pub code_files: Vec<CodeFile>,
+    pub name_buffer: String,
+    pub limit: usize,
+    pub layout: PrintLayout,
+    pub order: Ordering,
 }
 pub enum PrintLayout {
     OneLine,
@@ -30,43 +31,6 @@ pub enum Extension {
     Only(Vec<String>),
     Ignore(Vec<String>),
     Default,
-}
-impl LocScanner {
-    fn add_file(&mut self, file: CodeFile) {
-        self.code_files.push(file);
-    }
-    fn new() -> Self {
-        Self {
-            code_files: Vec::new(),
-            name_buffer: String::new(),
-            extension: Extension::Default,
-            layout: PrintLayout::OneLine,
-            limit: 100,
-        }
-    }
-    fn layout(&mut self, layout: PrintLayout) {
-        self.layout = layout;
-    }
-    fn extension(&mut self, ext: Extension) {
-        self.extension = ext;
-    }
-    fn print_layout(&self) {
-        match self.layout {
-            PrintLayout::Nested => (),
-            PrintLayout::OneLine => (),
-        };
-    }
-    fn sort_files(&mut self, cmp: Ordering) {
-        match cmp {
-            Ordering::Greater => {
-                self.code_files.sort_by_key(|f| Reverse(f.lines));
-            }
-            Ordering::Less => {
-                self.code_files.sort_by_key(|f| f.lines);
-            }
-            _ => (),
-        }
-    }
 }
 impl Processor for LocScanner {
     type Custom = io::Result<()>;
@@ -133,6 +97,73 @@ impl Processor for LocScanner {
             })
     }
 }
+impl LocScanner {
+    fn add_file(&mut self, file: CodeFile) {
+        self.code_files.push(file);
+    }
+    fn print_layout(
+        &mut self,
+        path: &Path,
+        print_buf: &mut BufWriter<StdoutLock>,
+    ) -> io::Result<()> {
+        self.sort_files();
+        self.print_header(path, print_buf)?;
+        match self.layout {
+            PrintLayout::Nested => (),
+            PrintLayout::OneLine => {
+                for (rank, f) in self.code_files.iter().enumerate() {
+                    if f.lines == 0 {
+                        continue;
+                    }
+                    if rank + 1 >= self.limit {
+                        break;
+                    }
+                    writeln!(
+                        print_buf,
+                        "{:<MAX_NAME_LEN$} {:>MAX_SIZE_LEN$} loc",
+                        f.name,
+                        style(f.lines).cyan()
+                    )?;
+                }
+            }
+        };
+        self.print_footer(print_buf)?;
+        Ok(())
+    }
+    fn sort_files(&mut self) {
+        match self.order {
+            Ordering::Greater => {
+                self.code_files.sort_by_key(|f| Reverse(f.lines));
+            }
+            Ordering::Less => {
+                self.code_files.sort_by_key(|f| f.lines);
+            }
+            _ => (),
+        }
+    }
+    fn print_header(&self, path: &Path, print_buf: &mut BufWriter<StdoutLock>) -> io::Result<()> {
+        writeln!(
+            print_buf,
+            "Locs written in {}:",
+            style(
+                fs::canonicalize(path)
+                    .unwrap()
+                    .file_name()
+                    .unwrap_or(&OsString::from("Drive"))
+                    .display()
+            )
+            .bold()
+        )?;
+        Ok(())
+    }
+    fn print_footer(&self, print_buf: &mut BufWriter<StdoutLock>) -> io::Result<()> {
+        writeln!(print_buf, "Total: {} locs", style(self.total_loc()).cyan())?;
+        Ok(())
+    }
+    fn total_loc(&self) -> usize {
+        self.code_files.iter().fold(0, |acc, loc| acc + loc.lines)
+    }
+}
 
 fn get_file_name(path: &Path) -> Option<(&str, &str)> {
     let name = path.file_name();
@@ -151,8 +182,7 @@ fn get_file_name(path: &Path) -> Option<(&str, &str)> {
     None
 }
 
-pub fn print_loc(path: &Path, top: usize, exclusive: Extension) -> io::Result<()> {
-    let mut processor = LocScanner::new();
+pub fn print_loc(path: &Path, mut processor: LocScanner) -> io::Result<()> {
     let mut print_buf = BufWriter::new(stdout().lock());
     let pb = ProgressBar::new_spinner();
     pb.set_style(
@@ -161,43 +191,8 @@ pub fn print_loc(path: &Path, top: usize, exclusive: Extension) -> io::Result<()
             .unwrap(),
     );
     walk_dir(path, &mut processor, &pb)?;
-    processor.code_files.sort_by_key(|x| Reverse(x.lines));
-    let total_loc = total_loc(&processor);
-    writeln!(
-        &mut print_buf,
-        "Locs written in {}:",
-        style(
-            fs::canonicalize(path)
-                .unwrap()
-                .file_name()
-                .unwrap_or(&OsString::from("Drive"))
-                .display()
-        )
-        .bold()
-    )?;
-    for (rank, f) in processor.code_files.into_iter().enumerate() {
-        if f.lines == 0 {
-            continue;
-        }
-        if rank + 1 >= top {
-            break;
-        }
-        writeln!(
-            &mut print_buf,
-            "{:<MAX_NAME_LEN$} {:>MAX_SIZE_LEN$} loc",
-            f.name,
-            style(f.lines).cyan()
-        )?;
-    }
-    writeln!(&mut print_buf, "Total: {} locs", style(total_loc).cyan())?;
+    processor.print_layout(path, &mut print_buf)?;
     pb.finish_and_clear();
     print_buf.flush().unwrap();
     Ok(())
-}
-
-fn total_loc(scanner: &LocScanner) -> usize {
-    scanner
-        .code_files
-        .iter()
-        .fold(0, |acc, loc| acc + loc.lines)
 }
