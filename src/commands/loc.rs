@@ -4,24 +4,27 @@ use crate::utils::{Processor, walk_dir};
 use console::style;
 use indicatif::{ProgressBar, ProgressStyle};
 use std::{
-    cmp::{Ordering, Reverse},
+    borrow::Cow,
+    cmp::{self, Ordering, Reverse},
     ffi::OsString,
     fmt::Write as fmtWrite,
     fs::{self, File},
     io::{self, BufRead, BufReader, BufWriter, StdoutLock, Write, stdout},
     path::Path,
 };
-pub struct CodeFile {
-    name: String,
+pub struct CodeFile<'a> {
+    name: Cow<'a, str>,
     lines: usize,
+    parent: Option<Box<CodeFile<'a>>>,
 }
-pub struct LocScanner {
+pub struct LocScanner<'a> {
     pub extension: Extension,
-    pub code_files: Vec<CodeFile>,
+    pub code_files: Vec<CodeFile<'a>>,
     pub name_buffer: String,
     pub limit: usize,
     pub layout: PrintLayout,
     pub order: Ordering,
+    pub current: Option<Box<CodeFile<'a>>>,
 }
 pub enum PrintLayout {
     OneLine,
@@ -32,28 +35,10 @@ pub enum Extension {
     Ignore(Vec<String>),
     Default,
 }
-impl Processor for LocScanner {
+impl Processor for LocScanner<'_> {
     type Custom = io::Result<()>;
 
     fn process_file(&mut self, file: &Path, pb: &ProgressBar) -> io::Result<()> {
-        fn name_shorten(buffer: &mut String, extension: &str, file_name: &str) -> std::fmt::Result {
-            buffer.write_fmt(format_args!(
-                "{}...{}",
-                &file_name.get(..5).unwrap_or(file_name),
-                extension
-            ))?;
-            Ok(())
-        }
-        fn get_loc(reader: BufReader<File>) -> usize {
-            reader
-                .split(b'\n')
-                .filter_map(Result::ok)
-                .filter(|line| {
-                    let line = line.strip_suffix(b"\r").unwrap_or(line);
-                    !line.is_empty()
-                })
-                .count()
-        }
         if let Some((name, ext)) = get_file_name(file) {
             if name.chars().count() > MAX_NAME_LEN {
                 name_shorten(&mut self.name_buffer, ext, name).unwrap();
@@ -69,10 +54,22 @@ impl Processor for LocScanner {
         let content = fs::File::open(file)?;
         let reader = BufReader::new(content);
         let loc = get_loc(reader);
-        self.add_file(CodeFile {
-            name: self.name_buffer.clone(),
-            lines: loc,
-        });
+        match self.layout {
+            PrintLayout::Nested => {
+                self.add_file(CodeFile {
+                    name: Cow::Borrowed(&self.name_buffer),
+                    lines: loc,
+                    parent: Some(),
+                });
+            }
+            PrintLayout::OneLine => {
+                self.add_file(CodeFile {
+                    name: Cow::Borrowed(&self.name_buffer),
+                    lines: loc,
+                    parent: None,
+                });
+            }
+        }
         self.name_buffer.clear();
         Ok(())
     }
@@ -182,6 +179,24 @@ fn get_file_name(path: &Path) -> Option<(&str, &str)> {
     None
 }
 
+fn name_shorten(buffer: &mut String, extension: &str, file_name: &str) -> std::fmt::Result {
+    buffer.write_fmt(format_args!(
+        "{}...{}",
+        &file_name.get(..5).unwrap_or(file_name),
+        extension
+    ))?;
+    Ok(())
+}
+fn get_loc(reader: BufReader<File>) -> usize {
+    reader
+        .split(b'\n')
+        .filter_map(Result::ok)
+        .filter(|line| {
+            let line = line.strip_suffix(b"\r").unwrap_or(line);
+            !line.is_empty()
+        })
+        .count()
+}
 pub fn print_loc(path: &Path, mut processor: LocScanner) -> io::Result<()> {
     let mut print_buf = BufWriter::new(stdout().lock());
     let pb = ProgressBar::new_spinner();

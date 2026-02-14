@@ -104,6 +104,7 @@ pub fn parsing() -> Result<(), Box<dyn std::error::Error>> {
                 limit: top,
                 layout,
                 order,
+                current: None,
             };
             print_loc(&path, scanner)?;
         }
