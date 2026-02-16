@@ -1,3 +1,4 @@
+pub(super) const PAD: u16 = 5;
 pub(super) const MAX_SIZE_LEN: usize = 10;
 pub(super) const MAX_NAME_LEN: usize = 30;
 pub(super) static CODE_EXTENSIONS: &[&str] = &[

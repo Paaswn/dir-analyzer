@@ -1,7 +1,7 @@
-use crate::commands::loc::{Extension, LocScanner, PrintLayout, print_loc};
+use crate::commands::loc::{Extension, LocScanner, PrintLayout, PrintOrder, print_loc};
 use crate::commands::size;
 use clap::{Parser, Subcommand};
-use std::cmp::Ordering;
+use std::io::{BufWriter, stdout};
 use std::path::{Path, PathBuf};
 
 #[derive(Parser)]
@@ -88,9 +88,9 @@ pub fn parsing() -> Result<(), Box<dyn std::error::Error>> {
                 _ => Extension::Default,
             };
             let order = match (ascending, descending) {
-                (true, false) => Ordering::Less,
-                (false, true) => Ordering::Greater,
-                _ => Ordering::Greater,
+                (true, false) => PrintOrder::Ascending,
+                (false, true) => PrintOrder::Descending,
+                _ => PrintOrder::Descending,
             };
             let layout = if nested && !one_line {
                 PrintLayout::Nested
@@ -104,7 +104,7 @@ pub fn parsing() -> Result<(), Box<dyn std::error::Error>> {
                 limit: top,
                 layout,
                 order,
-                current: None,
+                print_buf: BufWriter::new(stdout().lock()),
             };
             print_loc(&path, scanner)?;
         }

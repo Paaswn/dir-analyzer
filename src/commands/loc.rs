@@ -1,30 +1,38 @@
 //! ## A module to check a project's lines of code, *including* comments.
 use super::constant::*;
-use crate::utils::{Processor, walk_dir};
+use crate::utils::Processor;
 use console::style;
 use indicatif::{ProgressBar, ProgressStyle};
 use std::{
-    borrow::Cow,
-    cmp::{self, Ordering, Reverse},
+    cmp::Reverse,
     ffi::OsString,
     fmt::Write as fmtWrite,
     fs::{self, File},
-    io::{self, BufRead, BufReader, BufWriter, StdoutLock, Write, stdout},
+    io::{self, BufRead, BufReader, BufWriter, StdoutLock, Write},
     path::Path,
 };
-pub struct CodeFile<'a> {
-    name: Cow<'a, str>,
-    lines: usize,
-    parent: Option<Box<CodeFile<'a>>>,
+pub struct NestedPad(u16);
+impl NestedPad {
+    fn pad(&self) -> u16 {
+        self.0 * PAD
+    }
 }
-pub struct LocScanner<'a> {
+pub struct CodeFile {
+    name: String,
+    lines: usize,
+}
+pub struct LocScanner {
     pub extension: Extension,
-    pub code_files: Vec<CodeFile<'a>>,
+    pub code_files: Vec<CodeFile>,
     pub name_buffer: String,
+    pub print_buf: BufWriter<StdoutLock<'static>>,
     pub limit: usize,
     pub layout: PrintLayout,
-    pub order: Ordering,
-    pub current: Option<Box<CodeFile<'a>>>,
+    pub order: PrintOrder,
+}
+pub enum PrintOrder {
+    Ascending,
+    Descending,
 }
 pub enum PrintLayout {
     OneLine,
@@ -35,13 +43,13 @@ pub enum Extension {
     Ignore(Vec<String>),
     Default,
 }
-impl Processor for LocScanner<'_> {
+impl Processor for LocScanner {
     type Custom = io::Result<()>;
 
     fn process_file(&mut self, file: &Path, pb: &ProgressBar) -> io::Result<()> {
         if let Some((name, ext)) = get_file_name(file) {
             if name.chars().count() > MAX_NAME_LEN {
-                name_shorten(&mut self.name_buffer, ext, name).unwrap();
+                cut_name(&mut self.name_buffer, ext, name).unwrap();
                 pb.set_message(format!("Reading {}...", self.name_buffer));
             } else {
                 pb.set_message(format!("Reading {}", name));
@@ -54,22 +62,10 @@ impl Processor for LocScanner<'_> {
         let content = fs::File::open(file)?;
         let reader = BufReader::new(content);
         let loc = get_loc(reader);
-        match self.layout {
-            PrintLayout::Nested => {
-                self.add_file(CodeFile {
-                    name: Cow::Borrowed(&self.name_buffer),
-                    lines: loc,
-                    parent: Some(),
-                });
-            }
-            PrintLayout::OneLine => {
-                self.add_file(CodeFile {
-                    name: Cow::Borrowed(&self.name_buffer),
-                    lines: loc,
-                    parent: None,
-                });
-            }
-        }
+        self.add_file(CodeFile {
+            name: self.name_buffer.clone(),
+            lines: loc,
+        });
         self.name_buffer.clear();
         Ok(())
     }
@@ -95,16 +91,52 @@ impl Processor for LocScanner<'_> {
     }
 }
 impl LocScanner {
+    pub fn walk_dir_nested(&mut self, path: &Path, pb: &indicatif::ProgressBar) -> io::Result<()> {
+        let mut dir = match fs::read_dir(path) {
+            Ok(d) => d,
+            Err(_) => return Ok(()),
+        };
+        let mut helper = NestedPad(0);
+        for file in dir {
+            let file = file?;
+            let metadata = file.metadata()?;
+            let objec_path = file.path();
+            if metadata.is_dir() {
+                if self.is_dir_compatible(&objec_path) {
+                    helper.0 += 1;
+                    self.walk_dir(&objec_path, pb)?;
+                };
+            } else if self.is_file_compatible(&objec_path) {
+                self.process_file(&objec_path, pb)?;
+            }
+        }
+        Ok(())
+    }
+    pub fn walk_dir(&mut self, path: &Path, pb: &indicatif::ProgressBar) -> io::Result<()> {
+        let mut dir = match fs::read_dir(path) {
+            Ok(d) => d,
+            Err(_) => return Ok(()),
+        };
+        for file in dir {
+            let file = file?;
+            let metadata = file.metadata()?;
+            let objec_path = file.path();
+            if metadata.is_dir() {
+                if self.is_dir_compatible(&objec_path) {
+                    self.walk_dir(&objec_path, pb)?;
+                };
+            } else if self.is_file_compatible(&objec_path) {
+                self.process_file(&objec_path, pb)?;
+            }
+        }
+        Ok(())
+    }
     fn add_file(&mut self, file: CodeFile) {
         self.code_files.push(file);
     }
-    fn print_layout(
-        &mut self,
-        path: &Path,
-        print_buf: &mut BufWriter<StdoutLock>,
-    ) -> io::Result<()> {
+    fn print_layout(&mut self, path: &Path, pad: u16) -> io::Result<()> {
         self.sort_files();
-        self.print_header(path, print_buf)?;
+        self.print_header(path)?;
         match self.layout {
             PrintLayout::Nested => (),
             PrintLayout::OneLine => {
@@ -116,7 +148,7 @@ impl LocScanner {
                         break;
                     }
                     writeln!(
-                        print_buf,
+                        self.print_buf,
                         "{:<MAX_NAME_LEN$} {:>MAX_SIZE_LEN$} loc",
                         f.name,
                         style(f.lines).cyan()
@@ -124,23 +156,23 @@ impl LocScanner {
                 }
             }
         };
-        self.print_footer(print_buf)?;
+        self.print_footer()?;
         Ok(())
     }
     fn sort_files(&mut self) {
         match self.order {
-            Ordering::Greater => {
+            PrintOrder::Descending => {
                 self.code_files.sort_by_key(|f| Reverse(f.lines));
             }
-            Ordering::Less => {
+            PrintOrder::Ascending => {
                 self.code_files.sort_by_key(|f| f.lines);
             }
             _ => (),
         }
     }
-    fn print_header(&self, path: &Path, print_buf: &mut BufWriter<StdoutLock>) -> io::Result<()> {
+    fn print_header(&mut self, path: &Path) -> io::Result<()> {
         writeln!(
-            print_buf,
+            self.print_buf,
             "Locs written in {}:",
             style(
                 fs::canonicalize(path)
@@ -153,8 +185,12 @@ impl LocScanner {
         )?;
         Ok(())
     }
-    fn print_footer(&self, print_buf: &mut BufWriter<StdoutLock>) -> io::Result<()> {
-        writeln!(print_buf, "Total: {} locs", style(self.total_loc()).cyan())?;
+    fn print_footer(&mut self) -> io::Result<()> {
+        writeln!(
+            self.print_buf,
+            "Total: {} locs",
+            style(self.total_loc()).cyan()
+        )?;
         Ok(())
     }
     fn total_loc(&self) -> usize {
@@ -179,7 +215,7 @@ fn get_file_name(path: &Path) -> Option<(&str, &str)> {
     None
 }
 
-fn name_shorten(buffer: &mut String, extension: &str, file_name: &str) -> std::fmt::Result {
+fn cut_name(buffer: &mut String, extension: &str, file_name: &str) -> std::fmt::Result {
     buffer.write_fmt(format_args!(
         "{}...{}",
         &file_name.get(..5).unwrap_or(file_name),
@@ -198,16 +234,15 @@ fn get_loc(reader: BufReader<File>) -> usize {
         .count()
 }
 pub fn print_loc(path: &Path, mut processor: LocScanner) -> io::Result<()> {
-    let mut print_buf = BufWriter::new(stdout().lock());
     let pb = ProgressBar::new_spinner();
     pb.set_style(
         ProgressStyle::default_spinner()
             .template("{spinner:.green} {msg}")
             .unwrap(),
     );
-    walk_dir(path, &mut processor, &pb)?;
-    processor.print_layout(path, &mut print_buf)?;
+    processor.walk_dir(path, &pb)?;
+    processor.print_layout(path, 0)?;
     pb.finish_and_clear();
-    print_buf.flush().unwrap();
+    processor.print_buf.flush().unwrap();
     Ok(())
 }
