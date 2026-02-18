@@ -1,6 +1,7 @@
 use console::style;
 use indicatif::{ProgressBar, ProgressStyle};
 use rayon::prelude::*;
+use std::collections::BinaryHeap;
 use std::{
     cmp::Reverse,
     ffi::OsString,
@@ -13,9 +14,10 @@ use std::{
 const MAX_SIZE_LEN: usize = 3;
 const MAX_NAME_LEN: usize = 30;
 
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
 struct BasicFile {
-    name: String,
     size: u64,
+    name: String,
 }
 
 impl BasicFile {
@@ -81,7 +83,7 @@ fn is_hdd(path: &Path) -> bool {
     }
     true
 }
-fn children_size(path: &Path) -> std::io::Result<Vec<BasicFile>> {
+fn children_size(path: &Path, limit: usize) -> Result<BinaryHeap<Reverse<BasicFile>>, io::Error> {
     let new_spinner = ProgressBar::new_spinner();
     let pb = new_spinner;
     let pb = Arc::new(pb);
@@ -99,29 +101,55 @@ fn children_size(path: &Path) -> std::io::Result<Vec<BasicFile>> {
             .build_global()
             .expect("Failed")
     };
-    let mut results: Vec<BasicFile> = entries
+    let binheap: BinaryHeap<_> = entries
         .into_par_iter()
-        .map(|entry| {
-            let pb = Arc::clone(&pb);
-            let path = entry.path();
-            let name: String = path
-                .file_name()
-                .map(|x| x.to_string_lossy().into_owned())
-                .unwrap_or("UnknownName".to_owned());
-            if pb.length().unwrap_or(0) % 15 == 0 {
-                pb.set_message(format!("Reading {}...", name));
-            }
-            let size = parallel_size(&path, &pb);
-            BasicFile { name, size }
-        })
-        .collect();
+        .fold(
+            || BinaryHeap::with_capacity(limit),
+            |mut local_heap, entry| {
+                let pb = Arc::clone(&pb);
+                let path = entry.path();
+                let name: String = path
+                    .file_name()
+                    .map(|x| x.to_string_lossy().into_owned())
+                    .unwrap_or("UnknownName".to_owned());
+                if pb.length().unwrap_or(0) % 15 == 0 {
+                    pb.set_message(format!("Reading {}...", name));
+                }
+                let size = parallel_size(&path, &pb);
+                let basic_file = BasicFile { name, size };
+                if local_heap.len() < limit {
+                    local_heap.push(Reverse(basic_file));
+                } else if let Some(peek) = local_heap.peek() {
+                    if basic_file.gt(&peek.0) {
+                        local_heap.pop();
+                        local_heap.push(Reverse(basic_file));
+                    }
+                }
+                local_heap
+            },
+        )
+        .reduce(
+            || BinaryHeap::with_capacity(limit),
+            |mut heap1, heap2| {
+                for Reverse(v) in heap2 {
+                    if heap1.len() < limit {
+                        heap1.push(Reverse(v));
+                    } else if let Some(Reverse(min)) = heap1.peek() {
+                        if v > *min {
+                            heap1.pop();
+                            heap1.push(Reverse(v));
+                        }
+                    }
+                }
+                heap1
+            },
+        );
     pb.finish_and_clear();
-    results.sort_by_key(|x| Reverse(x.size));
-    Ok(results)
+    Ok(binheap)
 }
 
 pub fn print_sizes(path: &Path, limit: usize) -> std::io::Result<()> {
-    let files = children_size(path)?;
+    let files = children_size(path, limit)?.into_sorted_vec();
     let mut stdout = io::BufWriter::new(io::stdout().lock());
     writeln!(
         &mut stdout,
@@ -135,17 +163,15 @@ pub fn print_sizes(path: &Path, limit: usize) -> std::io::Result<()> {
         )
         .bold()
     )?;
-    let total_size = files.iter().fold(0, |acc, file| acc + file.size);
-    for (i, mut file) in files.into_iter().enumerate() {
-        file.shorten_name();
-        let (num, dec, suffix) = fmt_size(file.size);
-        if i + 1 >= limit {
-            break;
-        }
+    let total_size = files.iter().fold(0, |acc, file| acc + file.0.size);
+
+    for mut file in files {
+        file.0.shorten_name();
+        let (num, dec, suffix) = fmt_size(file.0.size);
         writeln!(
             &mut stdout,
             "{:<MAX_NAME_LEN$} {:>MAX_SIZE_LEN$}.{} {}",
-            file.name,
+            file.0.name,
             style(num).cyan(),
             style(dec).cyan(),
             suffix
