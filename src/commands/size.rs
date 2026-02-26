@@ -188,3 +188,15 @@ pub fn print_sizes(path: &Path, limit: usize) -> std::io::Result<()> {
     stdout.flush().unwrap();
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_if_hdd() {
+        assert_eq!(true, is_hdd(Path::new("E:\\"))); // unknown
+        assert_eq!(false, is_hdd(Path::new("C:\\")));
+        assert_eq!(false, is_hdd(Path::new("D:\\")));
+    }
+}
