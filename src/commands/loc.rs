@@ -92,6 +92,11 @@ impl Processor for LocScanner {
 }
 impl LocScanner {
     pub fn walk_dir_nested(&mut self, path: &Path, pb: &indicatif::ProgressBar) -> io::Result<()> {
+        //! # Reminder #
+        //! this method is an alternative to `walk_dir`. How I'm gonna implement nested structure is padding
+        //! everytime the tool walks into a new directory, and reset when it got back to the Root dir.
+        //! # Might required #
+        //! My future self probably need to implement an alternative of processfile function too!
         let mut dir = match fs::read_dir(path) {
             Ok(d) => d,
             Err(_) => return Ok(()),
