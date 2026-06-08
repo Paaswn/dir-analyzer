@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 #[derive(Parser)]
 #[command(name = "dira")]
-#[command(version = "0.2.1")]
+#[command(version)]
 #[command(about = "A CLI tool to analyze directories", long_about = None)]
 #[command(arg_required_else_help = true)]
 struct Cli {
@@ -24,7 +24,6 @@ pub enum Commands {
     /// Calculates the size of files and subdirectories in a given path
     Size {
         /// Path to the directory to analyze. Defaults to the current directory
-        #[arg(short, long)]
         path: Option<PathBuf>,
         /// The number of largest items to display
         #[arg(short, long, default_value_t = 100)]
@@ -33,7 +32,6 @@ pub enum Commands {
     /// Count lines of code (LOC) for files within a project directory. Note that this command is considerably slower than `dira size` and is best suited for project-specific analysis.
     Loc {
         /// Path to the project directory. Defaults to the current directory
-        #[arg(short, long)]
         path: Option<PathBuf>,
         /// The number of files with the most lines to display
         #[arg(short, long, default_value_t = 100)]
